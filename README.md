@@ -2,7 +2,7 @@
 
 ## How to run
 
-Add values to .env:
+Add values to .env based on the environment:
 ```
 POSTGRES_USER=username
 POSTGRES_PASSWORD=password
