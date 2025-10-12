@@ -15,6 +15,12 @@ import java.util.stream.Collectors;
 @Service
 public class CombinationService {
 
+    private static final String CORRECT_MESSAGE = "Oikein! Hyvä lause.";
+    private static final String INCORRECT_MESSAGE = "Väärin. Tuo lause ei ole sallittu.";
+    private static final String UNKNOWN_SUBJECT = "[Unknown Subject]";
+    private static final String UNKNOWN_VERB = "[Unknown Verb]";
+    private static final String UNKNOWN_OBJECT = "[Unknown Object]";
+
     private final AllowedCombinationRepository combinationRepository;
     private final WordRepository wordRepository;
 
@@ -28,11 +34,9 @@ public class CombinationService {
      * Retrieves all combinations, optionally filtered by verb ID.
      */
     public List<AllowedCombination> findAll(Long verbId) {
-        if (verbId != null) {
-            return combinationRepository.findByVerbId(verbId);
-        }
-
-        return combinationRepository.findAll();
+        return verbId != null
+                ? combinationRepository.findByVerbId(verbId)
+                : combinationRepository.findAll();
     }
 
     /**
@@ -41,24 +45,13 @@ public class CombinationService {
      */
     @Transactional
     public AllowedCombination createCombination(CombinationRequest request) {
-        Word subject = wordRepository.findById(request.getSubjectId())
-                .orElseThrow(() -> new NoSuchElementException("Subject word not found with ID: " + request.getSubjectId()));
+        Word subject = findWordOrThrow(request.getSubjectId(), "Subject");
+        Word verb = findWordOrThrow(request.getVerbId(), "Verb");
+        Word object = findWordOrThrow(request.getObjectId(), "Object");
 
-        Word verb = wordRepository.findById(request.getVerbId())
-                .orElseThrow(() -> new NoSuchElementException("Verb word not found with ID: " + request.getVerbId()));
+        validateCombinationDoesNotExist(request, subject, verb, object);
 
-        Word object = wordRepository.findById(request.getObjectId())
-                .orElseThrow(() -> new NoSuchElementException("Object word not found with ID: " + request.getObjectId()));
-
-        // Check for existing combination
-        if (combinationRepository.findBySubjectIdAndVerbIdAndObjectId(
-                request.getSubjectId(), request.getVerbId(), request.getObjectId()).isPresent()) {
-            throw new IllegalArgumentException("Combination already exists: " + subject.getText() + " " + verb.getText() + " " + object.getText());
-        }
-
-        AllowedCombination newCombination = new AllowedCombination(subject, verb, object);
-
-        return combinationRepository.save(newCombination);
+        return combinationRepository.save(new AllowedCombination(subject, verb, object));
     }
 
     /**
@@ -67,36 +60,15 @@ public class CombinationService {
      */
     @Transactional
     public List<AllowedCombination> createCombinationsBatch(CombinationBatchRequest batchRequest) {
-        Word verb = wordRepository.findById(batchRequest.getVerbId())
-                .orElseThrow(() -> new NoSuchElementException("Verb word not found with ID: " + batchRequest.getVerbId()));
+        Word verb = findWordOrThrow(batchRequest.getVerbId(), "Verb");
+        Map<Long, Word> wordMap = fetchWordsAsMap(batchRequest.getSubjectIds(), batchRequest.getObjectIds());
 
-        List<Long> subjectIds = batchRequest.getSubjectIds();
-        List<Long> objectIds = batchRequest.getObjectIds();
-
-        List<Long> allIds = new ArrayList<>(subjectIds);
-        allIds.addAll(objectIds);
-
-        // Fetch all required Words in one batch
-        Map<Long, Word> wordMap = wordRepository.findAllById(allIds)
-                .stream()
-                .collect(Collectors.toMap(Word::getId, w -> w));
-
-        List<AllowedCombination> combinationsToSave = new ArrayList<>();
-
-        for (Long subId : subjectIds) {
-            Word subject = wordMap.get(subId);
-            if (subject == null) continue;
-
-            for (Long objId : objectIds) {
-                Word object = wordMap.get(objId);
-                if (object == null) continue;
-
-                // Check for existence before creating to prevent unique constraint violation
-                if (combinationRepository.findBySubjectIdAndVerbIdAndObjectId(subId, verb.getId(), objId).isEmpty()) {
-                    combinationsToSave.add(new AllowedCombination(subject, verb, object));
-                }
-            }
-        }
+        List<AllowedCombination> combinationsToSave = buildCombinationsToSave(
+                verb,
+                batchRequest.getSubjectIds(),
+                batchRequest.getObjectIds(),
+                wordMap
+        );
 
         return combinationRepository.saveAll(combinationsToSave);
     }
@@ -128,92 +100,156 @@ public class CombinationService {
 
     /**
      * Retrieves data structure for generating sentence building exercises.
+     *
      * @param limit Maximum number of verbs to include (currently unused but supports future feature).
      */
     public SuggestionResponse getExerciseSuggestions(Integer limit) {
         List<AllowedCombination> allCombinations = combinationRepository.findAll();
 
-        // Data structures to build the final response
-        Map<Long, Set<Long>> verbToSubjectIds = new HashMap<>();
-        Map<Long, Set<Long>> verbToObjectIds = new HashMap<>();
-        Map<Long, Word> verbWords = new HashMap<>();
-        Set<Long> allSubjectIds = new HashSet<>();
-        Set<Long> allObjectIds = new HashSet<>();
+        CombinationGrouping grouping = groupCombinationsByVerb(allCombinations);
+        List<VerbSuggestion> verbSuggestions = buildVerbSuggestions(grouping);
 
-        // 2. Process and group all combinations
-        for (AllowedCombination combo : allCombinations) {
-            Long verbId = combo.getVerb().getId();
-            Long subjectId = combo.getSubject().getId();
-            Long objectId = combo.getObject().getId();
-
-            verbWords.put(verbId, combo.getVerb());
-
-            // Map verb ID to its compatible subject IDs
-            verbToSubjectIds.computeIfAbsent(verbId, k -> new HashSet<>()).add(subjectId);
-            allSubjectIds.add(subjectId);
-
-            // Map verb ID to its compatible object IDs
-            verbToObjectIds.computeIfAbsent(verbId, k -> new HashSet<>()).add(objectId);
-            allObjectIds.add(objectId);
-        }
-
-        // 3. Build Verb DTOs
-        List<VerbSuggestion> verbSuggestions = verbWords.values().stream()
-                .map(verb -> new VerbSuggestion(
-                        verb.getId(),
-                        verb.getText(),
-                        verbToSubjectIds.getOrDefault(verb.getId(), Collections.emptySet()).stream().toList(),
-                        verbToObjectIds.getOrDefault(verb.getId(), Collections.emptySet()).stream().toList()
-                ))
-                .collect(Collectors.toList());
-
-        // 4. Fetch and map all required Subjects and Objects
-        List<Word> subjects = wordRepository.findAllById(allSubjectIds);
-        List<Word> objects = wordRepository.findAllById(allObjectIds);
-
-        List<WordReference> subjectRefs = subjects.stream()
-                .map(WordReference::fromEntity).collect(Collectors.toList());
-        List<WordReference> objectRefs = objects.stream()
-                .map(WordReference::fromEntity).collect(Collectors.toList());
+        List<WordReference> subjectRefs = fetchWordReferences(grouping.allSubjectIds);
+        List<WordReference> objectRefs = fetchWordReferences(grouping.allObjectIds);
 
         return new SuggestionResponse(verbSuggestions, subjectRefs, objectRefs);
     }
-    
+
     /**
      * Validates if a specific S-V-O combination exists.
      */
     public ValidationResponse validateCombination(ValidationRequest request) {
-        // 1. Find the combination
-        Optional<AllowedCombination> combinationOptional = combinationRepository.findBySubjectIdAndVerbIdAndObjectId(
+        Optional<AllowedCombination> combination = combinationRepository.findBySubjectIdAndVerbIdAndObjectId(
                 request.subjectId(),
                 request.verbId(),
                 request.objectId()
         );
 
-        if (combinationOptional.isPresent()) {
-            AllowedCombination combo = combinationOptional.get();
+        return combination.map(this::buildValidResponse).orElseGet(() -> buildInvalidResponse(request));
+    }
 
-            // 2. Construct valid response
-            String sentence = String.format("%s %s %s",
-                    combo.getSubject().getText(),
-                    combo.getVerb().getText(),
-                    combo.getObject().getText()
-            );
+    private Word findWordOrThrow(Long wordId, String wordType) {
+        return wordRepository.findById(wordId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        wordType + " word not found with ID: " + wordId
+                ));
+    }
 
-            return new ValidationResponse(true, sentence, "Oikein! Hyvä lause.");
+    private void validateCombinationDoesNotExist(CombinationRequest request, Word subject, Word verb, Word object) {
+        if (combinationRepository.findBySubjectIdAndVerbIdAndObjectId(
+                request.getSubjectId(), request.getVerbId(), request.getObjectId()).isPresent()) {
+            throw new IllegalArgumentException(String.format(
+                    "Combination already exists: %s %s %s",
+                    subject.getText(), verb.getText(), object.getText()
+            ));
+        }
+    }
+
+    private Map<Long, Word> fetchWordsAsMap(List<Long> subjectIds, List<Long> objectIds) {
+        List<Long> allIds = new ArrayList<>(subjectIds);
+        allIds.addAll(objectIds);
+
+        return wordRepository.findAllById(allIds)
+                .stream()
+                .collect(Collectors.toMap(Word::getId, word -> word));
+    }
+
+    private List<AllowedCombination> buildCombinationsToSave(
+            Word verb,
+            List<Long> subjectIds,
+            List<Long> objectIds,
+            Map<Long, Word> wordMap) {
+
+        List<AllowedCombination> combinationsToSave = new ArrayList<>();
+
+        for (Long subjectId : subjectIds) {
+            Word subject = wordMap.get(subjectId);
+            if (subject == null) continue;
+
+            for (Long objectId : objectIds) {
+                Word object = wordMap.get(objectId);
+                if (object == null) continue;
+
+                if (isNewCombination(subjectId, verb.getId(), objectId)) {
+                    combinationsToSave.add(new AllowedCombination(subject, verb, object));
+                }
+            }
         }
 
-        // 3. Construct invalid response (need to fetch words for error message)
+        return combinationsToSave;
+    }
+
+    private boolean isNewCombination(Long subjectId, Long verbId, Long objectId) {
+        return combinationRepository.findBySubjectIdAndVerbIdAndObjectId(subjectId, verbId, objectId).isEmpty();
+    }
+
+    private CombinationGrouping groupCombinationsByVerb(List<AllowedCombination> combinations) {
+        CombinationGrouping grouping = new CombinationGrouping();
+
+        for (AllowedCombination combo : combinations) {
+            Long verbId = combo.getVerb().getId();
+            Long subjectId = combo.getSubject().getId();
+            Long objectId = combo.getObject().getId();
+
+            grouping.verbWords.put(verbId, combo.getVerb());
+            grouping.verbToSubjectIds.computeIfAbsent(verbId, k -> new HashSet<>()).add(subjectId);
+            grouping.verbToObjectIds.computeIfAbsent(verbId, k -> new HashSet<>()).add(objectId);
+            grouping.allSubjectIds.add(subjectId);
+            grouping.allObjectIds.add(objectId);
+        }
+
+        return grouping;
+    }
+
+    private List<VerbSuggestion> buildVerbSuggestions(CombinationGrouping grouping) {
+        return grouping.verbWords.values().stream()
+                .map(verb -> new VerbSuggestion(
+                        verb.getId(),
+                        verb.getText(),
+                        grouping.verbToSubjectIds.getOrDefault(verb.getId(), Collections.emptySet()).stream().toList(),
+                        grouping.verbToObjectIds.getOrDefault(verb.getId(), Collections.emptySet()).stream().toList()
+                ))
+                .collect(Collectors.toList());
+    }
+
+    private List<WordReference> fetchWordReferences(Set<Long> wordIds) {
+        return wordRepository.findAllById(wordIds).stream()
+                .map(WordReference::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    private ValidationResponse buildValidResponse(AllowedCombination combo) {
+        String sentence = formatSentence(
+                combo.getSubject().getText(),
+                combo.getVerb().getText(),
+                combo.getObject().getText()
+        );
+        return new ValidationResponse(true, sentence, CORRECT_MESSAGE);
+    }
+
+    private ValidationResponse buildInvalidResponse(ValidationRequest request) {
         Word subject = wordRepository.findById(request.subjectId()).orElse(null);
         Word verb = wordRepository.findById(request.verbId()).orElse(null);
         Word object = wordRepository.findById(request.objectId()).orElse(null);
 
-        String sentenceAttempt = String.format("%s %s %s",
-                subject != null ? subject.getText() : "[Unknown Subject]",
-                verb != null ? verb.getText() : "[Unknown Verb]",
-                object != null ? object.getText() : "[Unknown Object]"
+        String sentence = formatSentence(
+                subject != null ? subject.getText() : UNKNOWN_SUBJECT,
+                verb != null ? verb.getText() : UNKNOWN_VERB,
+                object != null ? object.getText() : UNKNOWN_OBJECT
         );
 
-        return new ValidationResponse(false, sentenceAttempt, "Väärin. Tuo lause ei ole sallittu.");
+        return new ValidationResponse(false, sentence, INCORRECT_MESSAGE);
+    }
+
+    private String formatSentence(String subject, String verb, String object) {
+        return String.format("%s %s %s", subject, verb, object);
+    }
+
+    private static class CombinationGrouping {
+        Map<Long, Set<Long>> verbToSubjectIds = new HashMap<>();
+        Map<Long, Set<Long>> verbToObjectIds = new HashMap<>();
+        Map<Long, Word> verbWords = new HashMap<>();
+        Set<Long> allSubjectIds = new HashSet<>();
+        Set<Long> allObjectIds = new HashSet<>();
     }
 }
