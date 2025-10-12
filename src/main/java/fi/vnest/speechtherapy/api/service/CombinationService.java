@@ -1,7 +1,6 @@
 package fi.vnest.speechtherapy.api.service;
 
-import fi.vnest.speechtherapy.api.dto.CombinationBatchRequest;
-import fi.vnest.speechtherapy.api.dto.CombinationRequest;
+import fi.vnest.speechtherapy.api.dto.*;
 import fi.vnest.speechtherapy.api.model.AllowedCombination;
 import fi.vnest.speechtherapy.api.model.Word;
 import fi.vnest.speechtherapy.api.repository.AllowedCombinationRepository;
@@ -10,10 +9,7 @@ import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.NoSuchElementException;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -128,5 +124,96 @@ public class CombinationService {
         }
 
         combinationRepository.deleteAllByVerbId(verbId);
+    }
+
+    /**
+     * Retrieves data structure for generating sentence building exercises.
+     * @param limit Maximum number of verbs to include (currently unused but supports future feature).
+     */
+    public SuggestionResponse getExerciseSuggestions(Integer limit) {
+        List<AllowedCombination> allCombinations = combinationRepository.findAll();
+
+        // Data structures to build the final response
+        Map<Long, Set<Long>> verbToSubjectIds = new HashMap<>();
+        Map<Long, Set<Long>> verbToObjectIds = new HashMap<>();
+        Map<Long, Word> verbWords = new HashMap<>();
+        Set<Long> allSubjectIds = new HashSet<>();
+        Set<Long> allObjectIds = new HashSet<>();
+
+        // 2. Process and group all combinations
+        for (AllowedCombination combo : allCombinations) {
+            Long verbId = combo.getVerb().getId();
+            Long subjectId = combo.getSubject().getId();
+            Long objectId = combo.getObject().getId();
+
+            verbWords.put(verbId, combo.getVerb());
+
+            // Map verb ID to its compatible subject IDs
+            verbToSubjectIds.computeIfAbsent(verbId, k -> new HashSet<>()).add(subjectId);
+            allSubjectIds.add(subjectId);
+
+            // Map verb ID to its compatible object IDs
+            verbToObjectIds.computeIfAbsent(verbId, k -> new HashSet<>()).add(objectId);
+            allObjectIds.add(objectId);
+        }
+
+        // 3. Build Verb DTOs
+        List<VerbSuggestion> verbSuggestions = verbWords.values().stream()
+                .map(verb -> new VerbSuggestion(
+                        verb.getId(),
+                        verb.getText(),
+                        verbToSubjectIds.getOrDefault(verb.getId(), Collections.emptySet()).stream().toList(),
+                        verbToObjectIds.getOrDefault(verb.getId(), Collections.emptySet()).stream().toList()
+                ))
+                .collect(Collectors.toList());
+
+        // 4. Fetch and map all required Subjects and Objects
+        List<Word> subjects = wordRepository.findAllById(allSubjectIds);
+        List<Word> objects = wordRepository.findAllById(allObjectIds);
+
+        List<WordReference> subjectRefs = subjects.stream()
+                .map(WordReference::fromEntity).collect(Collectors.toList());
+        List<WordReference> objectRefs = objects.stream()
+                .map(WordReference::fromEntity).collect(Collectors.toList());
+
+        return new SuggestionResponse(verbSuggestions, subjectRefs, objectRefs);
+    }
+    
+    /**
+     * Validates if a specific S-V-O combination exists.
+     */
+    public ValidationResponse validateCombination(ValidationRequest request) {
+        // 1. Find the combination
+        Optional<AllowedCombination> combinationOptional = combinationRepository.findBySubjectIdAndVerbIdAndObjectId(
+                request.subjectId(),
+                request.verbId(),
+                request.objectId()
+        );
+
+        if (combinationOptional.isPresent()) {
+            AllowedCombination combo = combinationOptional.get();
+
+            // 2. Construct valid response
+            String sentence = String.format("%s %s %s",
+                    combo.getSubject().getText(),
+                    combo.getVerb().getText(),
+                    combo.getObject().getText()
+            );
+
+            return new ValidationResponse(true, sentence, "Oikein! Hyvä lause.");
+        }
+
+        // 3. Construct invalid response (need to fetch words for error message)
+        Word subject = wordRepository.findById(request.subjectId()).orElse(null);
+        Word verb = wordRepository.findById(request.verbId()).orElse(null);
+        Word object = wordRepository.findById(request.objectId()).orElse(null);
+
+        String sentenceAttempt = String.format("%s %s %s",
+                subject != null ? subject.getText() : "[Unknown Subject]",
+                verb != null ? verb.getText() : "[Unknown Verb]",
+                object != null ? object.getText() : "[Unknown Object]"
+        );
+
+        return new ValidationResponse(false, sentenceAttempt, "Väärin. Tuo lause ei ole sallittu.");
     }
 }
