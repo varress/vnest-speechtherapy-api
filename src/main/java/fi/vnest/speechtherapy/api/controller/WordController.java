@@ -17,6 +17,7 @@ import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
 
 @RestController
+@RequestMapping("/api/words")
 public class WordController {
 
     private final WordService wordService;
@@ -29,7 +30,7 @@ public class WordController {
     /**
      * GET /api/words - Get all words, optionally filtered by type.
      */
-    @GetMapping(value = "/api/words", produces = "application/json")
+    @GetMapping()
     public ResponseEntity<ApiResponse<List<WordResponse>>> getAllWords(
             @RequestParam(required = false) WordType type) {
 
@@ -45,7 +46,7 @@ public class WordController {
     /**
      * POST /api/words - Create a new word.
      */
-    @PostMapping(value = "/api/words", produces = "application/json")
+    @PostMapping()
     public ResponseEntity<ApiResponse<WordResponse>> createWord(
             @Valid @RequestBody WordRequest request) {
 
@@ -58,7 +59,7 @@ public class WordController {
     /**
      * PUT /api/words/:id - Update an existing word.
      */
-    @PutMapping(path = {"/{id}", "/api/words/{id}"})
+    @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<WordResponse>> updateWord(
             @PathVariable Long id,
             @Valid @RequestBody WordRequest request) {
@@ -75,7 +76,7 @@ public class WordController {
     /**
      * DELETE /api/words/:id - Delete a word.
      */
-    @DeleteMapping(path = {"/{id}", "/api/words/{id}"})
+    @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteWord(@PathVariable Long id) {
         try {
             wordService.deleteWord(id);
