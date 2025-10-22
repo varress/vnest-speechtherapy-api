@@ -32,6 +32,7 @@ dependencies {
 
 spotbugs {
 	toolVersion = '4.8.4'
+	excludeFilter = file("config/spotbugs/excludeFilter.xml")
 }
 
 tasks.named('test') {
@@ -43,4 +44,5 @@ tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
 		xml.required = false
 		html.required = true
 	}
+	ignoreFailures = false
 }
