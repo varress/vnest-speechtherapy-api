@@ -32,7 +32,7 @@ dependencies {
 
 spotbugs {
 	toolVersion = '4.8.4'
-	excludeFilter = file("config/spotbugs/excludeFilter.xml")
+	excludeFilter = file("config/spotBugs/excludeFilter.xml")
 }
 
 tasks.named('test') {
