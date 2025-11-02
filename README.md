@@ -2,14 +2,20 @@
 
 ## How to run
 
-Add values to .env based on the environment:
+Add values to .env based on the environment.
 ```
+APP_USERS=admin@example.com:VerySecurePassword123!:Admin:ADMIN;user@example.com:AnotherSecurePass456!:User:USER
+
 POSTGRES_USER=username
 POSTGRES_PASSWORD=password
 POSTGRES_DB=database
+
+SERVER_SERVLET_SESSION_TIMEOUT=30m
 ```
+APP_USERS defines user accounts that can login to the admin UI.
 
 Run:
 ```
 docker compose up --build -d
 ```
+

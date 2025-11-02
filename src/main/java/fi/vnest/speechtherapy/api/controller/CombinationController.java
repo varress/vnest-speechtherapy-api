@@ -42,33 +42,7 @@ public class CombinationController {
         return ResponseEntity.ok(new ApiResponse<>(true, responseData));
     }
 
-    /**
-     * POST /api/combinations - Create one combinations
-     */
-    @PostMapping
-    public ResponseEntity<ApiResponse<?>> createCombination(@RequestBody @Valid CombinationRequest request) {
-        AllowedCombination newCombination = combinationService.createCombination(request);
-        CombinationResponse responseData = CombinationResponse.fromEntity(newCombination);
-        return new ResponseEntity<>(new ApiResponse<>(true, responseData), HttpStatus.CREATED);
-    }
 
-    /**
-     * POST /api/combinations - Create multiple combinations for a verb
-     */
-    @PostMapping("/batch")
-    public ResponseEntity<ApiResponse<?>> createCombinationsBatch(@RequestBody @Valid CombinationBatchRequest batchRequest) {
-        List<AllowedCombination> createdCombinations = combinationService.createCombinationsBatch(batchRequest);
-        List<CombinationResponse> responseList = createdCombinations.stream()
-                .map(CombinationResponse::fromEntity)
-                .collect(Collectors.toList());
-
-        CombinationBatchResponse bulkResponse = new CombinationBatchResponse(
-                responseList.size(),
-                responseList
-        );
-
-        return new ResponseEntity<>(new ApiResponse<>(true, bulkResponse), HttpStatus.CREATED);
-    }
 
     /**
      * DELETE /api/combinations/:id - Delete a specific combination.

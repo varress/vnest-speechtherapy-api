@@ -1,5 +1,6 @@
 // app.js
 const API_BASE = '/api';
+const ADMIN_BASE = '/admin'
 let currentEditId = null;
 
 // Tab switching
@@ -90,7 +91,7 @@ document.getElementById('word-form').addEventListener('submit', async (e) => {
     };
 
     try {
-        const response = await fetch(`${API_BASE}/words`, {
+        const response = await fetch(`${ADMIN_BASE}/words`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -114,7 +115,7 @@ async function deleteWord(id) {
     if (!confirm('Are you sure you want to delete this word?')) return;
 
     try {
-        const response = await fetch(`${API_BASE}/words/${id}`, {
+        const response = await fetch(`${ADMIN_BASE}/words/${id}`, {
             method: 'DELETE'
         });
 
@@ -182,6 +183,17 @@ async function loadCombinations() {
     }
 }
 
+function logout() {
+    fetch('/logout', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        }
+    }).then(() => {
+        window.location.href = '/login.html';
+    });
+}
+
 function displayCombinations(combinations) {
     const container = document.getElementById('combinations-list');
 
@@ -230,7 +242,7 @@ document.getElementById('combination-form').addEventListener('submit', async (e)
     };
 
     try {
-        const response = await fetch(`${API_BASE}/combinations`, {
+        const response = await fetch(`${ADMIN_BASE}/combinations`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -270,7 +282,7 @@ async function createBatchCombinations() {
     };
 
     try {
-        const response = await fetch(`${API_BASE}/combinations/batch`, {
+        const response = await fetch(`${ADMIN_BASE}/combinations/batch`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -293,7 +305,7 @@ async function deleteCombination(id) {
     if (!confirm('Are you sure you want to delete this combination?')) return;
 
     try {
-        const response = await fetch(`${API_BASE}/combinations/${id}`, {
+        const response = await fetch(`${ADMIN_BASE}/combinations/${id}`, {
             method: 'DELETE'
         });
 
