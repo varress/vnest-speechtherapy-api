@@ -19,3 +19,6 @@ Run:
 docker compose up --build -d
 ```
 
+## Admin UI
+Admin UI can be accessed locally from http://localhost:8080/login by using the credentials provided in the .env file. 
+Users need to ha ADMIN role to access and edit words and combinations.
